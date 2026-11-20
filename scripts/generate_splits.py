@@ -13,6 +13,12 @@ DATA_URL = "https://datahub.io/core/speed-dating/_r/-/data/speed-dating.csv"
 DATA_FILENAME = "speed-dating.csv"
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
+INTEREST_COLUMNS = (
+    "sports", "tvsports", "exercise", "dining", "museums", "art", "hiking",
+    "gaming", "clubbing", "reading", "tv", "theater", "movies", "concerts",
+    "music", "shopping", "yoga",
+)
+
 FEATURE_COLUMNS = (
     "attractive_partner",
     "sincere_partner",
@@ -37,23 +43,7 @@ FEATURE_COLUMNS = (
     "intelligence",
     "funny",
     "ambition",
-    "sports",
-    "tvsports",
-    "exercise",
-    "dining",
-    "museums",
-    "art",
-    "hiking",
-    "gaming",
-    "clubbing",
-    "reading",
-    "tv",
-    "theater",
-    "movies",
-    "concerts",
-    "music",
-    "shopping",
-    "yoga",
+    *INTEREST_COLUMNS,
     "attractive_important",
     "sincere_important",
     "intellicence_important",
@@ -73,6 +63,26 @@ FEATURE_COLUMNS = (
     "samerace",
     "interests_correlate",
     "met",
+    "like",
+    "guess_prob_liked",
+)
+
+# Match raw mirror fields before cleanup can change their values.
+MIRROR_COLUMNS = (
+    ("age", "age_o"),
+    ("race", "race_o"),
+    ("attractive_partner", "attractive_o"),
+    ("sincere_partner", "sinsere_o"),
+    ("intelligence_partner", "intelligence_o"),
+    ("funny_partner", "funny_o"),
+    ("ambition_partner", "ambitous_o"),
+    ("shared_interests_partner", "shared_interests_o"),
+    ("attractive_important", "pref_o_attractive"),
+    ("sincere_important", "pref_o_sincere"),
+    ("intellicence_important", "pref_o_intelligence"),
+    ("funny_important", "pref_o_funny"),
+    ("ambtition_important", "pref_o_ambitious"),
+    ("shared_interests_important", "pref_o_shared_interests"),
 )
 
 # Rule order matches EDA.ipynb because some field names fit several groups.
@@ -152,7 +162,22 @@ def _field_group(field: str | float) -> str:
     return "other"
 
 
+def _partner_rows(data: pd.DataFrame) -> pd.Series:
+    keys = ["wave", "interests_correlate", "samerace", "d_age"]
+    keys.extend(column for pair in MIRROR_COLUMNS for column in pair)
+    swaps = {source: target for left, right in MIRROR_COLUMNS
+             for source, target in ((left, right), (right, left))}
+    rows = data[keys].assign(row_id=data.index)
+    mirrored = rows.rename(columns={**swaps, "row_id": "partner_id"})
+    candidates = rows.merge(mirrored, on=keys)
+    candidates = candidates.loc[candidates["row_id"] != candidates["partner_id"]]
+    unique = candidates.drop_duplicates("row_id", keep=False).set_index("row_id")["partner_id"]
+    reciprocal = unique.map(unique).eq(unique.index)
+    return unique.loc[reciprocal].reindex(data.index)
+
+
 def _prepare_features(data: pd.DataFrame) -> pd.DataFrame:
+    partner_rows = _partner_rows(data)
     rating_columns = ["reading", "gaming", "funny_o", "attractive_o"]
     data[rating_columns] = data[rating_columns].clip(upper=10)
     data["met"] = data["met"].mask(data["met"] > 1)
@@ -160,7 +185,9 @@ def _prepare_features(data: pd.DataFrame) -> pd.DataFrame:
     for column in ("field", "race", "race_o"):
         data[column] = data[column].astype("string").str.strip("'")
     data["field_group"] = data["field"].map(_field_group)
-    return data
+    interests = data[list(INTEREST_COLUMNS)].reindex(partner_rows)
+    interests.index = data.index
+    return pd.concat([data, interests.add_suffix("_partner")], axis=1)
 
 
 def _split_waves(
