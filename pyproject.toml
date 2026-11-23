@@ -5,5 +5,18 @@ description = ""
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "matplotlib>=3.11.2",
     "pandas>=3.1.1",
+    "scipy>=1.18.1",
+    "seaborn>=0.13.2",
 ]
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["generate_splits"]
+
+[tool.setuptools.package-dir]
+"" = "scripts"
